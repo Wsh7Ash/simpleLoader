@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <TlHelp32.h>
+#include <cstring> // for strcasecmp
 
 // Function to get process ID by process name
 DWORD GetProcessIdByName(const std::string& processName) {
@@ -14,11 +15,17 @@ DWORD GetProcessIdByName(const std::string& processName) {
         
         if (Process32First(snapshot, &processEntry)) {
             do {
-                // Convert wide char to string for comparison
-                std::wstring wProcessName(processEntry.szExeFile);
-                std::string currentProcessName(wProcessName.begin(), wProcessName.end());
+                // Fixed: Use proper conversion from TCHAR to string
+                char exeName[260];
+                wcstombs(exeName, processEntry.szExeFile, sizeof(exeName));
+                std::string currentProcessName(exeName);
                 
-                if (_stricmp(currentProcessName.c_str(), processName.c_str()) == 0) {
+                // Fixed: Use strcasecmp instead of _stricmp for cross-platform
+                #ifdef _WIN32
+                    if (_stricmp(currentProcessName.c_str(), processName.c_str()) == 0) {
+                #else
+                    if (strcasecmp(currentProcessName.c_str(), processName.c_str()) == 0) {
+                #endif
                     processId = processEntry.th32ProcessID;
                     break;
                 }
@@ -107,8 +114,9 @@ DWORD LaunchProcess(const std::string& executablePath) {
     STARTUPINFO startupInfo = { sizeof(STARTUPINFO) };
     PROCESS_INFORMATION processInfo = { 0 };
     
-    // Create a mutable copy of the path string
-    char* cmdLine = _strdup(executablePath.c_str());
+    // Fixed: Use proper method for creating mutable string
+    char* cmdLine = new char[executablePath.length() + 1];
+    strcpy(cmdLine, executablePath.c_str());
     
     // Create the process
     if (CreateProcess(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &startupInfo, &processInfo)) {
@@ -119,11 +127,11 @@ DWORD LaunchProcess(const std::string& executablePath) {
         CloseHandle(processInfo.hThread);
         CloseHandle(processInfo.hProcess);
         
-        free(cmdLine);
+        delete[] cmdLine;
         return processInfo.dwProcessId;
     } else {
         std::cerr << "Error: Failed to launch process (Error code: " << GetLastError() << ")" << std::endl;
-        free(cmdLine);
+        delete[] cmdLine;
         return 0;
     }
 }
